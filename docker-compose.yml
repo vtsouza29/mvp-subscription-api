@@ -15,7 +15,6 @@ name: mvp-assinaturas
 services:
   redis:
     image: redis:7-alpine
-    container_name: mvp-redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -28,7 +27,6 @@ services:
     build:
       context: ../mvp-budget-api
     image: mvp-budget-api:compose
-    container_name: mvp-budget-api
     environment:
       API_KEY: ${BUDGET_API_KEY:-budget-local-dev-key}
       DATABASE_URL: sqlite+aiosqlite:///./data/budget.db
@@ -49,7 +47,6 @@ services:
     build:
       context: .
     image: mvp-subscription-api:compose
-    container_name: mvp-subscription-api
     environment:
       API_KEY: ${SUBSCRIPTION_API_KEY:-subscription-local-dev-key}
       DATABASE_URL: sqlite+aiosqlite:///./data/subscription.db
