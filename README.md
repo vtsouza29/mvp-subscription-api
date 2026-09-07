@@ -106,12 +106,40 @@ Em nenhum ponto o usuário é redirecionado para a API externa.
 
 ### Os dois serviços juntos (recomendado)
 
+O `docker-compose.yml` está **na raiz deste repositório** e sobe as duas componentes mais o Redis
+na mesma rede. Como cada componente tem repositório próprio, **clone os dois lado a lado**:
+
 ```bash
+git clone <url-do-mvp-subscription-api>
+git clone <url-do-mvp-budget-api>
+cd mvp-subscription-api
 docker compose up --build
 ```
 
-O `docker-compose.yml` está na raiz deste repositório e sobe a API principal, a API de metas e o
-Redis na mesma rede. Documentação interativa em <http://localhost:8000/docs>.
+A árvore precisa ficar assim, porque o compose usa `../mvp-budget-api` como contexto de build:
+
+```
+.../mvp-subscription-api/    <- o compose vive aqui
+.../mvp-budget-api/
+```
+
+| Serviço | Porta | Documentação |
+|---|---|---|
+| `subscription-api` (principal) | 8000 | <http://localhost:8000/docs> |
+| `budget-api` (secundária) | 8001 | <http://localhost:8001/docs> |
+| `redis` | interno | — |
+
+A subscription-api só sobe depois que a budget-api passa no `healthcheck`. Os bancos ficam em
+volumes nomeados e sobrevivem a `docker compose down`; o Redis é efêmero de propósito — cache que
+precisa sobreviver a restart não é cache.
+
+As chaves de API têm valores de desenvolvimento no compose. Para sobrescrevê-las, crie um `.env`
+na raiz deste repositório:
+
+```bash
+SUBSCRIPTION_API_KEY=uma-chave-sua
+BUDGET_API_KEY=outra-chave-diferente
+```
 
 ### Somente esta componente
 
