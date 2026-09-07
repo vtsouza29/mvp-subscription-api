@@ -89,6 +89,15 @@ class SubscriptionService:
                 error_type="invalid-usage-date",
             )
 
+        # Sem este limite, uma data futura zeraria a ociosidade permanentemente
+        # e a assinatura nunca mais apareceria no relatório de desperdício.
+        if moment > datetime.now(timezone.utc).date():
+            raise DomainError(
+                "O uso não pode estar no futuro.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                error_type="invalid-usage-date",
+            )
+
         subscription.last_used_on = moment
         return await self._repository.save(subscription)
 

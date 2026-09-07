@@ -167,3 +167,24 @@ async def test_listing_searches_filters_and_paginates(client):
         "total_items": 3,
         "total_pages": 2,
     }
+
+
+async def test_usage_in_the_future_is_rejected(client):
+    """Uma data futura zeraria a ociosidade para sempre."""
+    created = await create_subscription(client)
+
+    response = await client.patch(
+        f"/api/v1/subscriptions/{created['id']}/usage", json={"used_on": "2099-01-01"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["type"] == "invalid-usage-date"
+
+
+async def test_creation_with_future_last_use_is_rejected(client):
+    response = await client.post(
+        "/api/v1/subscriptions", json=subscription_payload(last_used_on="2099-01-01")
+    )
+
+    assert response.status_code == 422
+    assert response.json()["type"] == "validation-error"
