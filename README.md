@@ -11,6 +11,11 @@ em ciclos diferentes (mensal, trimestral, anual), e algumas você nem usa mais.
 
 ## Arquitetura
 
+![Fluxograma da arquitetura do MVP](docs/architecture.png)
+
+<details>
+<summary>Mesmo diagrama em Mermaid (fonte versionada, renderizada pelo GitHub)</summary>
+
 ```mermaid
 flowchart LR
     EXT["<b>API externa</b><br/>Frankfurter<br/>cotações do BCE"]
@@ -27,6 +32,8 @@ flowchart LR
     MAIN -.-> CACHE
     SEC -.-> CACHE
 ```
+
+</details>
 
 Três módulos, comunicação REST, **um deles externo**. Cada componente implementada tem
 repositório próprio, banco próprio e `Dockerfile` próprio.
@@ -140,6 +147,35 @@ na raiz deste repositório:
 SUBSCRIPTION_API_KEY=uma-chave-sua
 BUDGET_API_KEY=outra-chave-diferente
 ```
+
+### Verificação rápida
+
+Com a stack no ar, estes cinco comandos exercitam o sistema inteiro:
+
+```bash
+# 1. as duas componentes e suas dependências
+curl -s localhost:8000/health | jq
+curl -s localhost:8001/health | jq
+
+# 2. a API externa, já tratada
+curl -s localhost:8000/api/v1/fx/rates -H "X-API-Key: subscription-local-dev-key" | jq
+
+# 3. a orquestração entre as duas componentes
+curl -s "localhost:8000/api/v1/insights/overview?reference_month=2026-09" \
+  -H "X-API-Key: subscription-local-dev-key" | jq
+
+# 4. a resiliência: derrube a secundária e repita o comando 3
+docker compose stop budget-api     # overview segue 200, com budget_evaluation nulo
+docker compose start budget-api    # a avaliação volta sozinha
+
+# 5. a correlação atravessando os dois serviços
+curl -s "localhost:8000/api/v1/insights/overview" \
+  -H "X-API-Key: subscription-local-dev-key" -H "X-Request-ID: teste-123" > /dev/null
+docker compose logs | grep teste-123
+```
+
+O último comando mostra o mesmo identificador nos logs das duas componentes, com a chamada
+à secundária aninhada no tempo da chamada à principal.
 
 ### Somente esta componente
 
