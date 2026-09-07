@@ -1,0 +1,82 @@
+# Sobe o MVP completo: as duas componentes implementadas e o cache compartilhado.
+#
+# Os dois repositórios precisam estar clonados lado a lado, porque cada componente
+# tem repositório próprio (exigência do enunciado) e o compose vive na raiz da
+# componente principal:
+#
+#   .../mvp-subscription-api   <- você está aqui
+#   .../mvp-budget-api
+#
+# As chaves abaixo são valores de desenvolvimento. Para qualquer uso real,
+# sobrescreva-as em um arquivo .env, que não é versionado.
+
+name: mvp-assinaturas
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: mvp-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks: [mvp]
+
+  budget-api:
+    build:
+      context: ../mvp-budget-api
+    image: mvp-budget-api:compose
+    container_name: mvp-budget-api
+    environment:
+      API_KEY: ${BUDGET_API_KEY:-budget-local-dev-key}
+      DATABASE_URL: sqlite+aiosqlite:///./data/budget.db
+      REDIS_URL: redis://redis:6379/0
+      CACHE_TTL_SECONDS: "900"
+      SEED_ON_STARTUP: "true"
+      LOG_LEVEL: INFO
+    ports:
+      - "8001:8000"
+    volumes:
+      - budget-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [mvp]
+
+  subscription-api:
+    build:
+      context: .
+    image: mvp-subscription-api:compose
+    container_name: mvp-subscription-api
+    environment:
+      API_KEY: ${SUBSCRIPTION_API_KEY:-subscription-local-dev-key}
+      DATABASE_URL: sqlite+aiosqlite:///./data/subscription.db
+      BUDGET_API_URL: http://budget-api:8000
+      BUDGET_API_KEY: ${BUDGET_API_KEY:-budget-local-dev-key}
+      BUDGET_API_TIMEOUT_SECONDS: "3.0"
+      BUDGET_API_RETRIES: "1"
+      REDIS_URL: redis://redis:6379/0
+      CACHE_TTL_SECONDS: "900"
+      SEED_ON_STARTUP: "true"
+      IDLE_DAYS_THRESHOLD: "30"
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - subscription-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      budget-api:
+        condition: service_healthy
+    networks: [mvp]
+
+volumes:
+  budget-data:
+  subscription-data:
+
+networks:
+  mvp:
+    driver: bridge
