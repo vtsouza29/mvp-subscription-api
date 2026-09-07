@@ -50,19 +50,63 @@ class SubscriptionBase(BaseModel):
             raise ValueError("A próxima renovação não pode ser anterior ao início da assinatura.")
         if self.last_used_on and self.last_used_on < self.started_on:
             raise ValueError("O último uso não pode ser anterior ao início da assinatura.")
+        if self.last_used_on and self.last_used_on > date.today():
+            raise ValueError("O último uso não pode estar no futuro.")
         return self
 
 
 class SubscriptionCreate(SubscriptionBase):
     """Payload to register a new subscription."""
 
+    # Exemplo pré-preenchido no Swagger, em dólar de propósito: a resposta já sai
+    # com a cotação consultada na API externa e o custo normalizado em reais.
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Cloud Backup Pro",
+                "vendor": "Nimbus",
+                "category": "SAAS",
+                "amount": 11.99,
+                "currency": "USD",
+                "billing_cycle": "QUARTERLY",
+                "started_on": "2025-04-01",
+                "next_renewal_on": "2026-10-01",
+                "status": "ACTIVE",
+                "last_used_on": "2026-09-01",
+            }
+        }
+    )
+
 
 class SubscriptionUpdate(SubscriptionBase):
     """Full replacement payload, matching PUT semantics."""
 
+    # Mesmo registro com o preço alterado: a substituição dispara nova consulta
+    # de cotação, enquanto uma alteração que não mexe no preço preserva o snapshot.
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Cloud Backup Pro",
+                "vendor": "Nimbus",
+                "category": "SAAS",
+                "amount": 14.99,
+                "currency": "USD",
+                "billing_cycle": "QUARTERLY",
+                "started_on": "2025-04-01",
+                "next_renewal_on": "2026-10-01",
+                "status": "ACTIVE",
+                "last_used_on": "2026-09-01",
+            }
+        }
+    )
+
 
 class UsageUpdate(BaseModel):
     """Payload of the usage route: records that the subscription was used."""
+
+    # Uma data explícita deixa o exemplo legível no Swagger; enviar o corpo
+    # vazio, ou used_on nulo, registra o dia de hoje.
+    model_config = ConfigDict(json_schema_extra={"example": {"used_on": "2026-09-01"}})
 
     used_on: date | None = Field(
         default=None, description="Data do uso. Vazio registra o dia de hoje."
