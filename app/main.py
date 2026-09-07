@@ -10,6 +10,7 @@ from app.clients.frankfurter_client import FrankfurterClient
 from app.config import get_settings
 from app.core.cache import build_cache
 from app.core.correlation import CorrelationIdMiddleware
+from app.core.docs import register_documentation_routes
 from app.core.errors import register_exception_handlers
 from app.database import engine, init_database
 from app.routers import fx, health, insights, subscriptions
@@ -76,10 +77,13 @@ def create_app() -> FastAPI:
         description=DESCRIPTION,
         version=settings.app_version,
         lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
         contact={"name": "MVP - Arquitetura de Software (PUC-Rio)"},
         license_info={"name": "MIT"},
     )
 
+    register_documentation_routes(app)
     app.add_middleware(CorrelationIdMiddleware)
     register_exception_handlers(app)
 
