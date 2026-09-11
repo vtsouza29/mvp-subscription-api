@@ -109,6 +109,29 @@ Em nenhum ponto o usuário é redirecionado para a API externa.
 
 ---
 
+## Pré-requisitos
+
+| Ferramenta | Versão | Para quê |
+|---|---|---|
+| [Docker](https://docs.docker.com/get-docker/) + Docker Compose | Docker 24+ / Compose v2 | Executar as componentes em containers (caminho recomendado) |
+| [Git](https://git-scm.com/downloads) | qualquer recente | Clonar os dois repositórios |
+| [Python](https://www.python.org/downloads/) | **3.13** (mínimo 3.10) | Apenas para rodar localmente, fora do Docker |
+
+Antes de subir os containers, confirme que o **Docker está em execução** (no macOS e no Windows,
+abra o Docker Desktop):
+
+```bash
+docker info --format '{{.ServerVersion}}'   # falha com "Cannot connect" se o daemon estiver parado
+docker compose version
+```
+
+> **macOS:** o `python3` que vem com o sistema é o 3.9, que **não** instala as dependências
+> (`fastapi` exige Python 3.10+). Confira com `python3 --version`; se for inferior a 3.10, use o
+> executável versionado (`python3.13`), instalado por `brew install python@3.13` ou pelo
+> instalador oficial.
+
+---
+
 ## Como executar
 
 ### Os dois serviços juntos (recomendado)
@@ -117,8 +140,8 @@ O `docker-compose.yml` está **na raiz deste repositório** e sobe as duas compo
 na mesma rede. Como cada componente tem repositório próprio, **clone os dois lado a lado**:
 
 ```bash
-git clone <url-do-mvp-subscription-api>
-git clone <url-do-mvp-budget-api>
+git clone https://github.com/vtsouza29/mvp-subscription-api.git
+git clone https://github.com/vtsouza29/mvp-budget-api.git
 cd mvp-subscription-api
 docker compose up --build
 ```
@@ -195,12 +218,23 @@ degradado enquanto a secundária não estiver no ar.
 ### Localmente
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3.13 -m venv .venv          # ou qualquer Python >= 3.10
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 cp .env.example .env
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8000
 ```
+
+Para as rotas consolidadas avaliarem as metas, suba também a `mvp-budget-api` em outro terminal,
+na porta `8001` (é o `BUDGET_API_URL` do `.env.example`):
+
+```bash
+cd ../mvp-budget-api
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8001
+```
+
+Sem ela, esta API continua respondendo, em modo degradado.
 
 ### Populando dados de demonstração
 
@@ -368,8 +402,11 @@ tests/                 # testes automatizados
 
 ## Repositórios do MVP
 
-- Componente principal: este repositório
-- Componente secundária: `mvp-budget-api`
+| Componente | Repositório |
+|---|---|
+| Principal — `mvp-subscription-api` (este) | https://github.com/vtsouza29/mvp-subscription-api |
+| Secundária — `mvp-budget-api` | https://github.com/vtsouza29/mvp-budget-api |
+| API externa — Frankfurter | https://frankfurter.dev |
 
 ## Licença
 
