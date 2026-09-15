@@ -1,143 +1,80 @@
 # MVP Subscription API
 
-Componente **principal** do MVP de controle de assinaturas digitais, desenvolvido para a
-disciplina de **Arquitetura de Software** da PUC-Rio.
+Componente principal do MVP de controle de assinaturas digitais, desenvolvido para a disciplina de
+**Arquitetura de Software** da PUC-Rio.
 
-O sistema resolve um problema simples de enunciar e chato de resolver na mão: **quanto custa, em
-reais, o conjunto de assinaturas que você paga** — quando parte delas é cobrada em dólar ou euro,
-em ciclos diferentes (mensal, trimestral, anual), e algumas você nem usa mais.
-
----
+A aplicação registra assinaturas na moeda original, converte os custos para reais com as cotações
+da API externa Frankfurter, confronta o gasto com metas por categoria na componente secundária e
+aponta as assinaturas ociosas.
 
 ## Arquitetura
 
 ![Fluxograma da arquitetura do MVP](docs/architecture.png)
 
-<details>
-<summary>Mesmo diagrama em Mermaid (fonte versionada, renderizada pelo GitHub)</summary>
+Três módulos com comunicação REST, um deles externo (Cenário 2 do enunciado):
 
-```mermaid
-flowchart LR
-    EXT["<b>API externa</b><br/>Frankfurter<br/>cotações do BCE"]
-    MAIN["<b>mvp-subscription-api</b><br/>componente principal<br/>agregado Subscription"]
-    SEC["<b>mvp-budget-api</b><br/>componente secundária<br/>agregado Budget"]
-    DB1[("SQLite<br/>subscriptions")]
-    DB2[("SQLite<br/>budgets")]
-    CACHE[("Redis<br/>cache compartilhado")]
+| Componente | Responsabilidade |
+|---|---|
+| `mvp-subscription-api` (esta) | CRUD de assinaturas, normalização em BRL, relatório de desperdício, orquestração |
+| `mvp-budget-api` (secundária) | metas por categoria, avaliação de estouro, projeção de desembolso |
+| Frankfurter (externa) | cotações de câmbio do Banco Central Europeu |
 
-    MAIN -->|"REST · GET /latest"| EXT
-    MAIN -->|"REST · X-API-Key<br/>X-Request-ID propagado<br/>timeout 3s + 1 retentativa"| SEC
-    MAIN --- DB1
-    SEC --- DB2
-    MAIN -.-> CACHE
-    SEC -.-> CACHE
-```
+Cada componente implementada tem repositório, banco SQLite e `Dockerfile` próprios, e nenhuma
+acessa o banco da outra.
 
-</details>
-
-Três módulos, comunicação REST, **um deles externo**. Cada componente implementada tem
-repositório próprio, banco próprio e `Dockerfile` próprio.
-
-### Responsabilidades
-
-| Componente | É dona de | Faz |
-|---|---|---|
-| `mvp-subscription-api` (esta) | `Subscription` | CRUD, consumo do câmbio, normalização em BRL, relatório de desperdício, orquestração |
-| `mvp-budget-api` | `Budget` | metas por categoria, avaliação de estouro, projeção de desembolso |
-| Frankfurter | — | cotações de referência do Banco Central Europeu |
-
-A fronteira é o **agregado**, não a camada: cada serviço é dono do seu dado e ninguém escreve no
-banco do outro. É por isso que a projeção mora no serviço de metas, e não aqui — ela é uma regra
-sobre orçamento, não sobre assinaturas.
-
-### Resiliência
-
-A componente secundária ser derrubada **não derruba esta API**. As rotas consolidadas continuam
-respondendo `200`, com o gasto calculado localmente, `budget_evaluation: null` e a limitação
-declarada em `warnings`. O timeout é de 3s, com uma retentativa; um `4xx` não é repetido, porque
-uma chave inválida não vira válida na segunda tentativa.
-
-O mesmo vale para o câmbio: se a API externa cair, o serviço usa a **última cotação conhecida**,
-marcada com `stale: true`, em vez de falhar.
-
----
+**Comunicação com a secundária:** cada serviço exige a sua própria chave no cabeçalho `X-API-Key`.
+A principal propaga o `X-Request-ID` nas chamadas, com timeout de 3s e uma retentativa. Quando a
+secundária fica indisponível, as rotas consolidadas respondem `200` com `budget_evaluation: null`
+e a limitação declarada em `warnings`. Quando a API de câmbio falha, a última cotação conhecida é
+usada, marcada com `stale: true`.
 
 ## API externa: Frankfurter
 
 | Item | Detalhe |
 |---|---|
-| **Serviço** | [Frankfurter](https://frankfurter.dev) |
-| **O que fornece** | Taxas de câmbio de referência publicadas pelo Banco Central Europeu |
-| **Custo** | Gratuito |
-| **Cadastro** | **Não é necessário** |
-| **Chave de API** | **Não utiliza** — nada de credencial para vazar em repositório público |
-| **Licença** | Código do projeto sob licença Apache 2.0; os dados são de domínio público, publicados pelo BCE |
-| **Base URL** | `https://api.frankfurter.dev/v1` |
+| Serviço | [Frankfurter](https://frankfurter.dev) |
+| O que fornece | Taxas de câmbio de referência publicadas pelo Banco Central Europeu |
+| Custo | Gratuito |
+| Cadastro | Não é necessário |
+| Chave de API | Não utiliza |
+| Licença | Código sob Apache 2.0; dados públicos, publicados pelo BCE |
+| Base URL | `https://api.frankfurter.dev/v1` |
 
-**Rotas consumidas:**
+Rotas consumidas:
 
 | Rota | Uso nesta aplicação |
 |---|---|
-| `GET /v1/latest?base={moeda}&symbols=BRL` | Cotação usada ao cadastrar ou reprecificar uma assinatura |
-| `GET /v1/currencies` | Lista de moedas válidas, usada para rejeitar moedas não cotadas |
+| `GET /v1/latest?base={moeda}&symbols=BRL` | cotação gravada ao cadastrar ou reprecificar uma assinatura |
+| `GET /v1/currencies` | moedas aceitas, usadas para validar o cadastro |
 
-**Como os dados são tratados** — o enunciado exige consumir e tratar, nunca redirecionar:
-
-1. A cotação é buscada **no servidor**, nunca pelo cliente.
-2. É convertida para `Decimal` e **gravada junto da assinatura** (`fx_rate_to_brl`,
-   `fx_rate_date`), virando um registro histórico de quanto aquilo custava quando foi contratado.
-3. É combinada com o ciclo de cobrança para produzir um **custo mensal normalizado em reais**,
-   que é um dado nosso, e não da Frankfurter.
-4. A rota `GET /api/v1/fx/rates` devolve as cotações **já no formato desta aplicação**, apenas das
-   moedas em uso, com indicação de cotação defasada.
-
-Em nenhum ponto o usuário é redirecionado para a API externa.
-
----
+A cotação é buscada pelo servidor, convertida para `Decimal`, gravada junto da assinatura em
+`fx_rate_to_brl` e combinada com o ciclo de cobrança para produzir o custo mensal em reais. A rota
+`GET /api/v1/fx/rates` devolve as cotações já no formato da aplicação. O usuário nunca é
+redirecionado para a API externa.
 
 ## Tecnologias
 
-| Camada | Escolha |
-|---|---|
-| Linguagem | Python 3.13 |
-| Framework | FastAPI (REST + OpenAPI/Swagger) |
-| Persistência | SQLite via SQLAlchemy 2 (async, `aiosqlite`) |
-| Cliente HTTP | httpx (async) |
-| Cache | Redis, com queda automática para cache em memória |
-| Testes | pytest + httpx |
-| Execução | Docker |
-
----
+Python 3.13, FastAPI, SQLAlchemy 2 (async, `aiosqlite`), httpx, Redis com queda para cache em
+memória, pytest e Docker.
 
 ## Pré-requisitos
 
-| Ferramenta | Versão | Para quê |
-|---|---|---|
-| [Docker](https://docs.docker.com/get-docker/) + Docker Compose | Docker 24+ / Compose v2 | Executar as componentes em containers (caminho recomendado) |
-| [Git](https://git-scm.com/downloads) | qualquer recente | Clonar os dois repositórios |
-| [Python](https://www.python.org/downloads/) | **3.13** (mínimo 3.10) | Apenas para rodar localmente, fora do Docker |
+| Ferramenta | Versão |
+|---|---|
+| [Docker](https://docs.docker.com/get-docker/) + Docker Compose | Docker 24+, Compose v2 |
+| [Git](https://git-scm.com/downloads) | qualquer versão recente |
+| [Python](https://www.python.org/downloads/) (só para execução local) | 3.13, mínimo 3.10 |
 
-Antes de subir os containers, confirme que o **Docker está em execução** (no macOS e no Windows,
-abra o Docker Desktop):
-
-```bash
-docker info --format '{{.ServerVersion}}'   # falha com "Cannot connect" se o daemon estiver parado
-docker compose version
-```
-
-> **macOS:** o `python3` que vem com o sistema é o 3.9, que **não** instala as dependências
-> (`fastapi` exige Python 3.10+). Confira com `python3 --version`; se for inferior a 3.10, use o
-> executável versionado (`python3.13`), instalado por `brew install python@3.13` ou pelo
-> instalador oficial.
-
----
+No macOS, o `python3` do sistema é o 3.9 e não instala as dependências. Confira com
+`python3 --version` e use `python3.13` se necessário. Antes de subir os containers, verifique que o
+Docker está em execução com `docker info`.
 
 ## Como executar
 
-### Os dois serviços juntos (recomendado)
+### Os dois serviços juntos
 
-O `docker-compose.yml` está **na raiz deste repositório** e sobe as duas componentes mais o Redis
-na mesma rede. Como cada componente tem repositório próprio, **clone os dois lado a lado**:
+O `docker-compose.yml` está na raiz deste repositório e sobe as duas componentes com o Redis. Clone
+os dois repositórios lado a lado, porque o compose usa `../mvp-budget-api` como contexto de build:
 
 ```bash
 git clone https://github.com/vtsouza29/mvp-subscription-api.git
@@ -146,59 +83,19 @@ cd mvp-subscription-api
 docker compose up --build
 ```
 
-A árvore precisa ficar assim, porque o compose usa `../mvp-budget-api` como contexto de build:
-
-```
-.../mvp-subscription-api/    <- o compose vive aqui
-.../mvp-budget-api/
-```
-
 | Serviço | Porta | Documentação |
 |---|---|---|
 | `subscription-api` (principal) | 8000 | <http://localhost:8000/docs> |
 | `budget-api` (secundária) | 8001 | <http://localhost:8001/docs> |
-| `redis` | interno | — |
+| `redis` | interno | |
 
-A subscription-api só sobe depois que a budget-api passa no `healthcheck`. Os bancos ficam em
-volumes nomeados e sobrevivem a `docker compose down`; o Redis é efêmero de propósito — cache que
-precisa sobreviver a restart não é cache.
-
-As chaves de API têm valores de desenvolvimento no compose. Para sobrescrevê-las, crie um `.env`
-na raiz deste repositório:
+As chaves de API têm valores de desenvolvimento no compose. Para usar chaves próprias, crie um
+`.env` nesta pasta, que não é versionado:
 
 ```bash
 SUBSCRIPTION_API_KEY=uma-chave-sua
 BUDGET_API_KEY=outra-chave-diferente
 ```
-
-### Verificação rápida
-
-Com a stack no ar, estes cinco comandos exercitam o sistema inteiro:
-
-```bash
-# 1. as duas componentes e suas dependências
-curl -s localhost:8000/health | jq
-curl -s localhost:8001/health | jq
-
-# 2. a API externa, já tratada
-curl -s localhost:8000/api/v1/fx/rates -H "X-API-Key: subscription-local-dev-key" | jq
-
-# 3. a orquestração entre as duas componentes
-curl -s "localhost:8000/api/v1/insights/overview?reference_month=2026-09" \
-  -H "X-API-Key: subscription-local-dev-key" | jq
-
-# 4. a resiliência: derrube a secundária e repita o comando 3
-docker compose stop budget-api     # overview segue 200, com budget_evaluation nulo
-docker compose start budget-api    # a avaliação volta sozinha
-
-# 5. a correlação atravessando os dois serviços
-curl -s "localhost:8000/api/v1/insights/overview" \
-  -H "X-API-Key: subscription-local-dev-key" -H "X-Request-ID: teste-123" > /dev/null
-docker compose logs | grep teste-123
-```
-
-O último comando mostra o mesmo identificador nos logs das duas componentes, com a chamada
-à secundária aninhada no tempo da chamada à principal.
 
 ### Somente esta componente
 
@@ -212,39 +109,19 @@ docker run --rm -p 8000:8000 \
   mvp-subscription-api
 ```
 
-Sobe sem Redis e sem a API de metas: as rotas consolidadas simplesmente respondem em modo
-degradado enquanto a secundária não estiver no ar.
-
-### Localmente
+### Execução local
 
 ```bash
-python3.13 -m venv .venv          # ou qualquer Python >= 3.10
-source .venv/bin/activate         # Windows: .venv\Scripts\activate
+python3.13 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 cp .env.example .env
 uvicorn app.main:app --reload --port 8000
+python -m seeds.seed               # dados de demonstração, idempotente
 ```
 
-Para as rotas consolidadas avaliarem as metas, suba também a `mvp-budget-api` em outro terminal,
-na porta `8001` (é o `BUDGET_API_URL` do `.env.example`):
-
-```bash
-cd ../mvp-budget-api
-source .venv/bin/activate
-uvicorn app.main:app --reload --port 8001
-```
-
-Sem ela, esta API continua respondendo, em modo degradado.
-
-### Populando dados de demonstração
-
-```bash
-python -m seeds.seed
-```
-
-Idempotente, e busca as cotações reais quando há rede.
-
----
+A componente secundária roda em outro terminal, na porta `8001`. Sem ela, as rotas consolidadas
+respondem em modo degradado.
 
 ## Variáveis de ambiente
 
@@ -253,21 +130,17 @@ Idempotente, e busca as cotações reais quando há rede.
 | `API_KEY` | `subscription-local-dev-key` | Chave exigida por esta API. |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data/subscription.db` | Banco do serviço. |
 | `BUDGET_API_URL` | `http://localhost:8001` | Endereço da componente secundária. |
-| `BUDGET_API_KEY` | `budget-local-dev-key` | Chave **própria** do serviço de metas. |
+| `BUDGET_API_KEY` | `budget-local-dev-key` | Chave própria do serviço de metas. |
 | `BUDGET_API_TIMEOUT_SECONDS` | `3.0` | Timeout das chamadas à secundária. |
 | `BUDGET_API_RETRIES` | `1` | Retentativas em falha de transporte. |
 | `FRANKFURTER_URL` | `https://api.frankfurter.dev/v1` | Base da API externa. |
-| `FX_FEE_PCT` | `0` | Encargos sobre cobranças em moeda estrangeira (IOF + spread do emissor), em pontos percentuais. Alíquota negativa é recusada na subida. |
+| `FX_FEE_PCT` | `0` | Encargos sobre moeda estrangeira (IOF e spread), em pontos percentuais. |
 | `FX_CACHE_TTL_SECONDS` | `900` | Validade da cotação em cache. |
 | `FX_FALLBACK_TTL_SECONDS` | `604800` | Validade do cache de emergência. |
-| `REDIS_URL` | *(vazio)* | Se ausente, o cache cai para memória. |
+| `REDIS_URL` | vazio | Se ausente, o cache usa memória. |
 | `SEED_ON_STARTUP` | `false` | Cria assinaturas sintéticas no start. |
 | `IDLE_DAYS_THRESHOLD` | `30` | Dias sem uso para entrar no relatório de desperdício. |
 | `LOG_LEVEL` | `INFO` | Nível de log. |
-
-O arquivo `.env` **não** é versionado. Use o `.env.example` como ponto de partida.
-
----
 
 ## Rotas
 
@@ -278,16 +151,16 @@ Todas as rotas de negócio exigem o cabeçalho `X-API-Key`. A rota `/health` é 
 | `POST` | `/api/v1/subscriptions` | Cadastra uma assinatura e grava o snapshot da cotação. |
 | `GET` | `/api/v1/subscriptions` | Lista com busca, filtros, ordenação e paginação. |
 | `GET` | `/api/v1/subscriptions/{id}` | Consulta uma assinatura. |
-| `PUT` | `/api/v1/subscriptions/{id}` | Substitui integralmente uma assinatura. |
+| `PUT` | `/api/v1/subscriptions/{id}` | Substitui uma assinatura. |
 | `PATCH` | `/api/v1/subscriptions/{id}/usage` | Registra o uso da assinatura. |
 | `DELETE` | `/api/v1/subscriptions/{id}` | Remove uma assinatura. |
-| `GET` | `/api/v1/insights/overview` | Gasto por categoria **confrontado com as metas**. |
+| `GET` | `/api/v1/insights/overview` | Gasto por categoria confrontado com as metas. |
 | `GET` | `/api/v1/insights/waste` | Relatório de assinaturas ociosas. |
-| `GET` | `/api/v1/insights/projection` | Projeção de desembolso, **delegada à secundária**. |
-| `GET` | `/api/v1/fx/rates` | Cotações tratadas das moedas em uso. |
+| `GET` | `/api/v1/insights/projection` | Projeção de desembolso, delegada à secundária. |
+| `GET` | `/api/v1/fx/rates` | Cotações das moedas em uso. |
 | `GET` | `/health` | Saúde do serviço e de cada dependência. |
 
-### Exemplo — cadastrar uma assinatura em dólar
+Exemplo de cadastro em dólar:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/subscriptions \
@@ -305,86 +178,32 @@ curl -X POST http://localhost:8000/api/v1/subscriptions \
   }'
 ```
 
-A resposta traz `fx_rate_to_brl`, `fx_rate_date`, o encargo aplicado em `fx_fee_pct` e o custo
-já normalizado em `monthly_amount_brl` e `yearly_amount_brl`.
-
-### Exemplo — visão consolidada
-
-```bash
-curl "http://localhost:8000/api/v1/insights/overview?reference_month=2026-09" \
-  -H "X-API-Key: minha-chave"
-```
-
----
+A resposta traz `fx_rate_to_brl`, `fx_fee_pct` e o custo normalizado em `monthly_amount_brl` e
+`yearly_amount_brl`.
 
 ## Regras de negócio
 
-**Normalização de custo.** `amount` e `currency` são a fonte da verdade. O custo mensal é
-`amount × fx_rate_to_brl ÷ meses_do_ciclo`, o que torna comparável uma assinatura anual em euro e
-uma mensal em real.
+**Normalização.** O custo mensal é `amount × fx_rate_to_brl ÷ meses_do_ciclo`, o que torna
+comparável uma assinatura anual em euro e uma mensal em real.
 
-**Snapshot de câmbio.** A cotação é gravada no cadastro e **só é buscada de novo quando o valor
-ou a moeda mudam**. Renomear a assinatura não reprecifica nada: o snapshot é o registro do que foi
-contratado, não uma cotação viva.
+**Snapshot de câmbio.** A cotação é gravada no cadastro e só é buscada de novo quando o valor ou a
+moeda mudam.
 
-**Encargos de moeda estrangeira.** A cotação da Frankfurter é a taxa de referência do BCE, sem impostos. O que a fatura do cartão cobra é mais do que isso: há IOF sobre a compra internacional e o spread do emissor. `FX_FEE_PCT` aplica esse encargo sobre o valor convertido, e só sobre moeda estrangeira — cobrança já feita em reais não é compra internacional. O snapshot `fx_rate_to_brl` continua puro, e a resposta traz `fx_fee_pct` com o encargo que de fato incidiu. Com o padrão `0`, o custo é a conversão pura.
+**Encargos de câmbio.** A taxa do BCE é de referência, sem impostos. `FX_FEE_PCT` aplica IOF e
+spread do emissor sobre o valor convertido, apenas em moeda estrangeira. A resposta traz
+`fx_fee_pct` com o encargo aplicado.
 
-**Desperdício.** Uma assinatura ativa entra no relatório quando está sem uso há mais dias que o
-limite. Nunca ter sido usada conta desde a data de início — o que costuma ser o pior caso, não a
-ausência de dado.
+**Desperdício.** Uma assinatura ativa entra no relatório quando está sem uso há mais dias que
+`IDLE_DAYS_THRESHOLD`. Assinaturas nunca usadas contam desde a data de início.
 
-**Categorias sem meta.** Não são silenciadas: voltam da secundária em `unbudgeted_categories`.
+## Observabilidade e testes
 
----
-
-## Autenticação
-
-Esta API tem chave própria (`API_KEY`) e apresenta uma chave **diferente** (`BUDGET_API_KEY`) ao
-serviço de metas. Compartilhar a rede do compose não é motivo para compartilhar confiança: se esta
-componente for comprometida, a chave da secundária não vaza junto. A comparação usa
-`secrets.compare_digest`, e o esquema é declarado no OpenAPI — o botão *Authorize* do Swagger
-funciona.
-
-## Observabilidade
-
-Todo request recebe ou herda um `X-Request-ID`, que é **propagado na chamada à componente
-secundária** e devolvido no cabeçalho da resposta. Um mesmo pedido pode ser seguido nos logs dos
-dois serviços. Erros seguem o formato Problem Details (RFC 7807) e carregam o mesmo identificador.
-
-## Testes
+Cada requisição recebe ou herda um `X-Request-ID`, propagado na chamada à secundária e devolvido no
+cabeçalho da resposta. Os erros seguem o formato Problem Details (RFC 7807).
 
 ```bash
 pytest
 ```
-
-Cobrem CRUD, autenticação, busca/filtro/ordenação/paginação, snapshot e reprecificação de câmbio,
-queda da API externa com uso do cache de emergência, agregação por categoria, degradação quando a
-secundária cai, relatório de desperdício e o contrato do cliente HTTP (chave, correlação e
-retentativa).
-
----
-
-## Decisões de projeto
-
-- **A projeção mora na secundária.** Poderia ser calculada aqui em vinte linhas. Ela está lá
-  porque é uma regra sobre orçamento, e mover dado é mais barato que espalhar regra: o serviço que
-  conhece metas é o que sabe distribuir cobranças ao longo de uma janela.
-- **Encargo na configuração, não no snapshot.** O IOF não é característica do contrato, e sim
-  política do meio de pagamento: muda por decreto e passa a valer para todas as cobranças
-  seguintes de uma vez. Congelá-lo em cada linha exigiria reescrever a tabela a cada mudança de
-  alíquota. Já a cotação é congelada de propósito — ela responde quanto aquilo custava quando
-  foi contratado.
-- **Dinheiro em centavos, cotação em milionésimos.** SQLite não tem decimal nativo e `Numeric` ali
-  passa por `float`. Os tipos `MoneyType` e `RateType` gravam inteiros escalados, mantendo o valor
-  exato e a ordenação correta.
-- **Duas camadas de cache para o câmbio.** Uma curta (15 min), coerente com a publicação diária do
-  BCE; e uma de emergência (7 dias), usada só quando a API externa falha. Indisponibilidade externa
-  degrada a resposta, não derruba o serviço.
-- **Schema criado no start, sem Alembic.** Uma tabela, sem evolução de schema no escopo. Em
-  produção o schema seria versionado com Alembic.
-- **`4xx` não é repetido.** Retentativa só faz sentido para falha de transporte.
-
----
 
 ## Estrutura
 
@@ -393,10 +212,9 @@ app/
 ├── main.py            # criação da aplicação e ciclo de vida
 ├── config.py          # settings via variáveis de ambiente
 ├── database.py        # engine, sessão e criação do schema
-├── dependencies.py    # injeção de dependências
 ├── security.py        # autenticação por API key
 ├── clients/           # HTTP: API externa de câmbio e serviço de metas
-├── core/              # enums, cache, erros, correlação, tipos
+├── core/              # enums, cache, erros, correlação, tipos, encargos
 ├── models/            # mapeamento ORM do agregado Subscription
 ├── schemas/           # contratos de entrada e saída
 ├── repositories/      # acesso a dados
@@ -406,15 +224,13 @@ seeds/                 # dados sintéticos idempotentes
 tests/                 # testes automatizados
 ```
 
----
-
 ## Repositórios do MVP
 
 | Componente | Repositório |
 |---|---|
-| Principal — `mvp-subscription-api` (este) | https://github.com/vtsouza29/mvp-subscription-api |
-| Secundária — `mvp-budget-api` | https://github.com/vtsouza29/mvp-budget-api |
-| API externa — Frankfurter | https://frankfurter.dev |
+| Principal, `mvp-subscription-api` (esta) | https://github.com/vtsouza29/mvp-subscription-api |
+| Secundária, `mvp-budget-api` | https://github.com/vtsouza29/mvp-budget-api |
+| API externa, Frankfurter | https://frankfurter.dev |
 
 ## Licença
 
