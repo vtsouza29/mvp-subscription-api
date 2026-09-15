@@ -54,6 +54,9 @@ services:
       BUDGET_API_KEY: ${BUDGET_API_KEY:-budget-local-dev-key}
       BUDGET_API_TIMEOUT_SECONDS: "3.0"
       BUDGET_API_RETRIES: "1"
+      # Encargo de exemplo para a demonstração (IOF + spread do emissor).
+      # Confirme a alíquota vigente antes de usar o número como referência real.
+      FX_FEE_PCT: ${FX_FEE_PCT:-3.5}
       REDIS_URL: redis://redis:6379/0
       CACHE_TTL_SECONDS: "900"
       SEED_ON_STARTUP: "true"

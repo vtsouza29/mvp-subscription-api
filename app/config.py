@@ -1,7 +1,9 @@
 """Application settings, loaded from environment variables or a local .env file."""
 
+from decimal import Decimal
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +35,12 @@ class Settings(BaseSettings):
     # Cotação de emergência, guardada muito além do TTL normal: se a API externa
     # cair, o serviço responde com a última taxa conhecida em vez de falhar.
     fx_fallback_ttl_seconds: int = 604800
+
+    # Encargos sobre cobranças em moeda estrangeira (IOF + spread do emissor), em
+    # pontos percentuais. Zero mantém o custo na cotação pura de referência.
+    # Alíquota negativa é recusada aqui: o serviço falha ao subir, com mensagem
+    # clara, em vez de devolver um custo menor que a conversão.
+    fx_fee_pct: Decimal = Field(default=Decimal("0"), ge=0)
 
     redis_url: str | None = None
     cache_ttl_seconds: int = 900

@@ -133,7 +133,12 @@ class SubscriptionResponse(BaseModel):
     fx_rate_to_brl: float = Field(description="Cotação registrada no momento do cadastro.")
     fx_rate_date: date = Field(description="Data de publicação da cotação pelo BCE.")
 
-    amount_brl: float = Field(description="Valor de cada cobrança em reais.")
+    amount_brl: float = Field(
+        description="Valor de cada cobrança em reais, já com os encargos configurados."
+    )
+    fx_fee_pct: float = Field(
+        description="Encargos aplicados sobre a conversão (IOF + spread), em pontos percentuais."
+    )
     monthly_amount_brl: float = Field(description="Custo normalizado por mês, em reais.")
     yearly_amount_brl: float = Field(description="Custo normalizado por ano, em reais.")
     idle_days: int = Field(description="Dias desde o último uso registrado.")

@@ -257,6 +257,7 @@ Idempotente, e busca as cotações reais quando há rede.
 | `BUDGET_API_TIMEOUT_SECONDS` | `3.0` | Timeout das chamadas à secundária. |
 | `BUDGET_API_RETRIES` | `1` | Retentativas em falha de transporte. |
 | `FRANKFURTER_URL` | `https://api.frankfurter.dev/v1` | Base da API externa. |
+| `FX_FEE_PCT` | `0` | Encargos sobre cobranças em moeda estrangeira (IOF + spread do emissor), em pontos percentuais. Alíquota negativa é recusada na subida. |
 | `FX_CACHE_TTL_SECONDS` | `900` | Validade da cotação em cache. |
 | `FX_FALLBACK_TTL_SECONDS` | `604800` | Validade do cache de emergência. |
 | `REDIS_URL` | *(vazio)* | Se ausente, o cache cai para memória. |
@@ -304,8 +305,8 @@ curl -X POST http://localhost:8000/api/v1/subscriptions \
   }'
 ```
 
-A resposta traz `fx_rate_to_brl`, `fx_rate_date` e o custo já normalizado em
-`monthly_amount_brl` e `yearly_amount_brl`.
+A resposta traz `fx_rate_to_brl`, `fx_rate_date`, o encargo aplicado em `fx_fee_pct` e o custo
+já normalizado em `monthly_amount_brl` e `yearly_amount_brl`.
 
 ### Exemplo — visão consolidada
 
@@ -325,6 +326,8 @@ uma mensal em real.
 **Snapshot de câmbio.** A cotação é gravada no cadastro e **só é buscada de novo quando o valor
 ou a moeda mudam**. Renomear a assinatura não reprecifica nada: o snapshot é o registro do que foi
 contratado, não uma cotação viva.
+
+**Encargos de moeda estrangeira.** A cotação da Frankfurter é a taxa de referência do BCE, sem impostos. O que a fatura do cartão cobra é mais do que isso: há IOF sobre a compra internacional e o spread do emissor. `FX_FEE_PCT` aplica esse encargo sobre o valor convertido, e só sobre moeda estrangeira — cobrança já feita em reais não é compra internacional. O snapshot `fx_rate_to_brl` continua puro, e a resposta traz `fx_fee_pct` com o encargo que de fato incidiu. Com o padrão `0`, o custo é a conversão pura.
 
 **Desperdício.** Uma assinatura ativa entra no relatório quando está sem uso há mais dias que o
 limite. Nunca ter sido usada conta desde a data de início — o que costuma ser o pior caso, não a
@@ -366,6 +369,11 @@ retentativa).
 - **A projeção mora na secundária.** Poderia ser calculada aqui em vinte linhas. Ela está lá
   porque é uma regra sobre orçamento, e mover dado é mais barato que espalhar regra: o serviço que
   conhece metas é o que sabe distribuir cobranças ao longo de uma janela.
+- **Encargo na configuração, não no snapshot.** O IOF não é característica do contrato, e sim
+  política do meio de pagamento: muda por decreto e passa a valer para todas as cobranças
+  seguintes de uma vez. Congelá-lo em cada linha exigiria reescrever a tabela a cada mudança de
+  alíquota. Já a cotação é congelada de propósito — ela responde quanto aquilo custava quando
+  foi contratado.
 - **Dinheiro em centavos, cotação em milionésimos.** SQLite não tem decimal nativo e `Numeric` ali
   passa por `float`. Os tipos `MoneyType` e `RateType` gravam inteiros escalados, mantendo o valor
   exato e a ordenação correta.

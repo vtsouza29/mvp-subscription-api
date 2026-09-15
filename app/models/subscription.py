@@ -10,6 +10,7 @@ from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import BillingCycle, SpendCategory, SubscriptionStatus
+from app.core.pricing import effective_fee_pct, with_fee
 from app.core.types import MoneyType, RateType
 from app.database import Base
 
@@ -64,8 +65,18 @@ class Subscription(Base):
 
     @property
     def amount_brl(self) -> Decimal:
-        """Value of a single charge, converted with the stored snapshot."""
-        return self.amount * self.fx_rate_to_brl
+        """Cost of a single charge: snapshot conversion plus the configured fee.
+
+        The snapshot itself stays untouched — ``fx_rate_to_brl`` remains the pure
+        ECB reference rate. The fee (IOF + issuer spread) is applied here because
+        it is a policy of the payment method, current rather than historical.
+        """
+        return with_fee(self.amount * self.fx_rate_to_brl, self.currency)
+
+    @property
+    def fx_fee_pct(self) -> Decimal:
+        """Encargo efetivamente aplicado a esta cobrança, em pontos percentuais."""
+        return effective_fee_pct(self.currency)
 
     @property
     def monthly_amount_brl(self) -> Decimal:
