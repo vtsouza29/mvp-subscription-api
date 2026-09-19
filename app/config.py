@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     budget_api_retries: int = 1
 
     # --- API externa de câmbio ---
-    frankfurter_url: str = "https://api.frankfurter.dev/v1"
+    frankfurter_url: str = "https://api.frankfurter.dev/v2"
     frankfurter_timeout_seconds: float = 5.0
     fx_cache_ttl_seconds: int = 900
     # Cotação de emergência, guardada muito além do TTL normal: se a API externa

@@ -34,18 +34,19 @@ usada, marcada com `stale: true`.
 |---|---|
 | Serviço | [Frankfurter](https://frankfurter.dev) |
 | O que fornece | Taxas de câmbio de referência publicadas pelo Banco Central Europeu |
+| Versão | v2, nas rotas do provedor `ecb` |
 | Custo | Gratuito |
 | Cadastro | Não é necessário |
 | Chave de API | Não utiliza |
 | Licença | Código sob Apache 2.0; dados públicos, publicados pelo BCE |
-| Base URL | `https://api.frankfurter.dev/v1` |
+| Base URL | `https://api.frankfurter.dev/v2` |
 
 Rotas consumidas:
 
 | Rota | Uso nesta aplicação |
 |---|---|
-| `GET /v1/latest?base={moeda}&symbols=BRL` | cotação gravada ao cadastrar ou reprecificar uma assinatura |
-| `GET /v1/currencies` | moedas aceitas, usadas para validar o cadastro |
+| `GET /v2/providers/ecb/rate/{moeda}/brl` | cotação gravada ao cadastrar ou reprecificar uma assinatura |
+| `GET /v2/providers/ecb/rates?base=EUR` | moedas cotadas pelo BCE, usadas para validar o cadastro |
 
 A cotação é buscada pelo servidor, convertida para `Decimal`, gravada junto da assinatura em
 `fx_rate_to_brl` e combinada com o ciclo de cobrança para produzir o custo mensal em reais. A rota
@@ -133,7 +134,7 @@ respondem em modo degradado.
 | `BUDGET_API_KEY` | `budget-local-dev-key` | Chave própria do serviço de metas. |
 | `BUDGET_API_TIMEOUT_SECONDS` | `3.0` | Timeout das chamadas à secundária. |
 | `BUDGET_API_RETRIES` | `1` | Retentativas em falha de transporte. |
-| `FRANKFURTER_URL` | `https://api.frankfurter.dev/v1` | Base da API externa. |
+| `FRANKFURTER_URL` | `https://api.frankfurter.dev/v2` | Base da API externa. |
 | `FX_FEE_PCT` | `0` | Encargos sobre moeda estrangeira (IOF e spread), em pontos percentuais. |
 | `FX_CACHE_TTL_SECONDS` | `900` | Validade da cotação em cache. |
 | `FX_FALLBACK_TTL_SECONDS` | `604800` | Validade do cache de emergência. |
